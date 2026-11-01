@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.backup
+*.backup-*
+*.before-*
+.env
+.env.*
+
+*.ml-backup-*

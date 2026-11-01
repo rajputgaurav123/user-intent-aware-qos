@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Intent-Aware Adaptive QoS</title>
+<style>
+:root{--bg:#06101f;--panel:#0d1c31;--border:#1b3858;--text:#eef6ff;--muted:#9ab0cd;--blue:#2196ff;--purple:#a855f7;--green:#10d7a0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 "Segoe UI",Arial,sans-serif}
+header{padding:20px 28px;background:linear-gradient(110deg,#102b50,#071326);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:12px}
+h1{font-size:clamp(19px,3vw,27px);margin:0}h2{margin:0 0 8px;font-size:21px}h3{margin:0 0 10px}
+.muted,.note{color:var(--muted)}.note{font-size:12px}
+.status{color:#4ef2be;border:1px solid #087b62;background:#07342f;padding:7px 12px;border-radius:30px;white-space:nowrap}
+.layout{display:grid;grid-template-columns:200px minmax(0,1fr);gap:20px;max-width:1500px;margin:auto;padding:20px}
+nav{display:flex;flex-direction:column;gap:8px}
+nav button{color:var(--muted);background:transparent;border:1px solid transparent;border-radius:9px;padding:13px;text-align:left;font-size:14px;cursor:pointer}
+nav button:hover{background:#102640;color:white}
+nav button.active{background:#103e78;border-color:#246bc1;color:white}
+main{min-width:0}
+.tab{display:none}.tab.active{display:block}
+.panel{background:linear-gradient(145deg,#0d1d32,#091527);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:15px}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.two{display:grid;grid-template-columns:1.15fr .85fr;gap:14px}
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.intent{width:100%;min-height:132px;padding:14px;border-radius:12px;border:1px solid var(--border);background:#0c2038;color:white;text-align:left;cursor:pointer}
+.intent.active{border:2px solid var(--blue);background:#103766;box-shadow:0 0 16px #168bff30}
+.intent .emoji{font-size:27px;display:block}.intent strong{display:block;font-size:16px;margin:7px 0}
+.intent small{color:#b2c8e4}
+.metric{background:#09172a;border:1px solid var(--border);border-radius:12px;padding:15px}
+.value{font-size:25px;font-weight:700;margin:6px 0}
+.row{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #19314a}
+.row:last-child{border-bottom:0}
+.bar{height:9px;background:#20334b;border-radius:9px;overflow:hidden;margin:7px 0 13px}
+.bar span{display:block;height:100%;border-radius:9px}
+.chart{display:block;width:100%;height:auto;background:white;border-radius:8px}
+button.action{background:#0b2d51;color:#c7e6ff;border:1px solid #247fc3;padding:10px 14px;border-radius:9px;cursor:pointer}
+.badge{display:inline-block;padding:5px 10px;border-radius:30px;background:#073c33;color:#54efbc}
+footer{color:var(--muted);font-size:12px;padding:12px}
+@media(max-width:850px){.layout{grid-template-columns:1fr;padding:12px}nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.two,.three{grid-template-columns:1fr}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){header{padding:14px}.status{font-size:11px}.grid{grid-template-columns:1fr 1fr}nav button{padding:10px 6px;font-size:12px}.value{font-size:20px}}
+
+/* Live simulated metrics */
+.live-chart-grid {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:14px;
+}
+.live-chart-panel {
+  min-width:0;
+  background:#09172a;
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:14px;
+}
+.live-chart-panel h3 { margin-bottom:4px; }
+.live-chart-canvas {
+  display:block;
+  width:100%;
+  height:210px;
+}
+.simulated-badge {
+  display:inline-block;
+  font-size:10px;
+  letter-spacing:.08em;
+  color:#fbd38d;
+  border:1px solid #805b20;
+  background:#382a12;
+  border-radius:20px;
+  padding:3px 8px;
+  margin:5px 0 8px;
+}
+@media(max-width:700px) {
+  .live-chart-grid { grid-template-columns:1fr; }
+}
+
+</style>
+</head>
+<body>
+<header>
+ <div><h1>◉ User-Intent-Aware <span style="color:#55baff">Adaptive QoS Engine</span></h1>
+ <div class="muted">Smart Traffic Prioritization · Research Prototype</div></div>
+ <div class="status">● WSL Prototype</div>
+</header>
+<div class="layout">
+<nav aria-label="Main navigation">
+ <button class="active" data-tab="dashboard">⌂ &nbsp; Dashboard</button>
+ <button data-tab="results">▥ &nbsp; Results</button>
+ <button data-tab="metrics">◉ &nbsp; Network Metrics</button>
+<button data-tab="ml-model">🧠 &nbsp; ML Model</button>
+ <button data-tab="policy">⚙ &nbsp; Policy Details</button>
+ <button data-tab="about">ⓘ &nbsp; About</button>
+</nav>
+<main>
+<section class="tab active" id="dashboard">
+ <div class="panel">
+  <h2>Select Your User Intent</h2><div class="muted">Choose what matters most. The proposed policy preview will update.</div>
+  <div class="grid" style="margin-top:15px">
+   <button class="intent active" data-intent="video_call"><span class="emoji">📹</span><strong>Video Call</strong><small>Low latency, stable connection</small></button>
+   <button class="intent" data-intent="gaming"><span class="emoji">🎮</span><strong>Gaming</strong><small>Responsive, low-latency traffic</small></button>
+   <button class="intent" data-intent="streaming"><span class="emoji">▶️</span><strong>Streaming</strong><small>Smooth playback, steady throughput</small></button>
+   <button class="intent" data-intent="download"><span class="emoji">⬇️</span><strong>Download</strong><small>Prioritize bulk transfer</small></button>
+  </div>
+ </div>
+ <div class="grid">
+  <div class="metric"><div class="muted">Gaming baseline</div><div class="value">4.77 Mbps</div><div class="note">Recorded average</div></div>
+  <div class="metric"><div class="muted">Gaming adaptive</div><div class="value">7.63 Mbps</div><span style="color:var(--green)">≈ +60%</span></div>
+  <div class="metric"><div class="muted">Streaming baseline</div><div class="value">4.79 Mbps</div><div class="note">Recorded average</div></div>
+  <div class="metric"><div class="muted">Streaming adaptive</div><div class="value">1.43 Mbps</div><span style="color:#ff8d9a">≈ −70%</span></div>
+ </div>
+ <div class="two" style="margin-top:15px">
+  <div class="panel"><h2>Experiment Overview</h2><img class="chart" src="throughput_comparison.png" alt="Baseline and adaptive throughput comparison"></div>
+  <div class="panel"><h2>Current Selection</h2><div class="badge">Policy preview</div><h3 id="selected-name" style="margin-top:15px">Video Call</h3><div id="dashboard-allocation"></div><p class="note">Preview only; selection is not applied to Linux QoS.</p>
+  <button class="action" id="apply-policy-btn" style="margin-top:10px">Simulate QoS Policy</button>
+  <p class="note" id="apply-status">Not applied. This action targets veth-test only.</p><button class="action" data-goto="policy">View Policy Details →</button></div>
+ </div>
+</section>
+
+
+<section class="panel" id="live-simulation-graphs">
+  <h2>Live Network Simulation</h2>
+  <p class="muted">Network performance metrics over time.</p>
+  <span class="simulated-badge"></span>
+  <p class="note"></p>
+
+  <div class="live-chart-grid">
+    <div class="live-chart-panel">
+      <h3>Latency</h3><span class="muted">Milliseconds (ms)</span>
+      <div class="value" id="sim-latency-value">-- ms</div>
+      <canvas class="live-chart-canvas" id="sim-latency-chart" role="img" aria-label="Simulated latency over time"></canvas>
+    </div>
+    <div class="live-chart-panel">
+      <h3>Throughput</h3><span class="muted">Megabits per second (Mbps)</span>
+      <div class="value" id="sim-throughput-value">-- Mbps</div>
+      <canvas class="live-chart-canvas" id="sim-throughput-chart" role="img" aria-label="Simulated throughput over time"></canvas>
+    </div>
+    <div class="live-chart-panel">
+      <h3>Jitter</h3><span class="muted">Milliseconds (ms)</span>
+      <div class="value" id="sim-jitter-value">-- ms</div>
+      <canvas class="live-chart-canvas" id="sim-jitter-chart" role="img" aria-label="Simulated jitter over time"></canvas>
+    </div>
+    <div class="live-chart-panel">
+      <h3>Packet Loss</h3><span class="muted">Percent (%)</span>
+      <div class="value" id="sim-loss-value">-- %</div>
+      <canvas class="live-chart-canvas" id="sim-loss-chart" role="img" aria-label="Simulated packet loss over time"></canvas>
+    </div>
+  </div>
+  <p class="note" id="sim-update-status">Updating metrics...</p>
+</section>
+
+<section class="tab" id="results">
+
+ <div class="panel" id="experiment-51" style="margin-top:16px">
+  <h2>51-Run User-Intent QoS Experiment</h2>
+  <p class="muted">Separate experiment dataset: 3 baseline runs and 48 adaptive runs. Source: combined_qos_results.csv.</p>
+  <div class="grid">
+   <div class="metric"><div class="muted">Total runs</div><div class="value" id="r51-total">—</div></div>
+   <div class="metric"><div class="muted">Completed OK</div><div class="value" id="r51-ok">—</div></div>
+   <div class="metric"><div class="muted">Baseline runs</div><div class="value">3</div></div>
+   <div class="metric"><div class="muted">Adaptive runs</div><div class="value">48</div></div>
+  </div>
+  <div class="two" style="margin-top:15px">
+   <div><label for="r51-intent">Intent</label>
+    <select id="r51-intent">
+     <option value="all">All intents</option><option value="video_call">Video Call</option>
+     <option value="gaming">Gaming</option><option value="streaming">Streaming</option>
+     <option value="download">Download</option>
+    </select>
+   </div>
+   <div><label for="r51-scenario">Congestion</label>
+    <select id="r51-scenario">
+     <option value="all">All conditions</option><option value="low">Low</option>
+     <option value="moderate">Moderate</option><option value="high">High</option>
+     <option value="critical">Critical</option><option value="baseline">Baseline</option>
+    </select>
+   </div>
+  </div>
+  <p class="note" id="r51-status">Loading experiment data…</p>
+  <h3>Average metrics for selected runs</h3>
+  <div id="r51-metrics" class="grid"></div>
+  <h3 style="margin-top:18px">Metric comparison</h3>
+  <div id="r51-charts" class="two"></div>
+  <h3 style="margin-top:18px">Run history</h3>
+  <div style="overflow-x:auto">
+   <table style="width:100%;border-collapse:collapse;min-width:850px">
+    <thead><tr>
+     <th>Type</th><th>Intent</th><th>Condition</th><th>Run</th>
+     <th>Interactive Mbps</th><th>Streaming Mbps</th><th>Bulk Mbps</th>
+     <th>Avg latency ms</th><th>Jitter ms</th><th>Loss %</th><th>Fairness</th>
+    </tr></thead>
+    <tbody id="r51-table"></tbody>
+   </table>
+  </div>
+  <p class="note">Local isolated WSL experiment only. Results do not establish real broadband performance. Baseline contains only 3 runs; adaptive conditions have 3 repetitions each.</p>
+ </div>
+
+ <div class="panel"><h2>Baseline vs Adaptive Results</h2><p class="muted">Average receiver throughput from three concurrent trials.</p><img class="chart" src="throughput_comparison.png" alt="Baseline versus adaptive throughput"></div>
+ <div class="grid">
+  <div class="metric"><div class="muted">Gaming baseline</div><div class="value">4.77 Mbps</div></div>
+  <div class="metric"><div class="muted">Gaming adaptive</div><div class="value">7.63 Mbps</div><div style="color:var(--green)">≈ +60%</div></div>
+  <div class="metric"><div class="muted">Streaming baseline</div><div class="value">4.79 Mbps</div></div>
+  <div class="metric"><div class="muted">Streaming adaptive</div><div class="value">1.43 Mbps</div><div style="color:#ff8d9a">≈ −70%</div></div>
+ </div>
+ <div class="panel" style="margin-top:15px"><h3>Interpretation</h3><p>The tested configuration allocated more bandwidth to gaming and less to streaming. These are preliminary results; shaping conditions may not be perfectly comparable, and throughput alone does not prove lower gaming latency.</p></div>
+
+ <div id="verified-results" class="three" style="margin-top:14px">
+  <div class="panel"><p class="muted">Gaming throughput</p><h2>4.77 → 7.63 Mbps</h2><p style="color:#4ef2be">Approximately +60%</p><p class="note">Baseline → Adaptive</p></div>
+  <div class="panel"><p class="muted">Streaming throughput</p><h2>4.79 → 1.43 Mbps</h2><p style="color:#fca5a5">Approximately −70%</p><p class="note">Baseline → Adaptive</p></div>
+  <div class="panel"><p class="muted">Experiment scope</p><h2>3 trials</h2><p>Concurrent traffic tests</p><p class="note">Isolated WSL virtual network</p></div>
+ </div>
+ <div class="panel" style="margin-top:14px">
+  <h2>Interpretation & limitations</h2>
+  <p>In these tests, the configured adaptive policy prioritized gaming traffic over streaming traffic.</p>
+  <ul>
+   <li>Preliminary results from an isolated WSL virtual network; not proof of real broadband performance.</li>
+   <li>Higher gaming throughput does not establish lower latency or jitter.</li>
+   <li>Test conditions and shaping ceilings may not have been perfectly comparable.</li>
+   <li>The traffic classifier was trained on synthetic data and has not been validated on real traffic.</li>
+  </ul>
+ </div>
+</section>
+
+<section class="tab" id="metrics">
+ <div class="panel"><h2>Network Metrics</h2><p class="muted">Metric source and measurement scope.</p>
+  <div class="row"><span>Test environment</span><b>Isolated WSL virtual network</b></div>
+  <div class="row"><span>Configured shaping capacity</span><b>20 Mbps</b></div>
+  <div class="row"><span>Gaming receiver throughput — baseline</span><b>4.77 Mbps</b></div>
+  <div class="row"><span>Gaming receiver throughput — adaptive</span><b>7.63 Mbps</b></div>
+  <div class="row"><span>Streaming receiver throughput — baseline</span><b>4.79 Mbps</b></div>
+  <div class="row"><span>Streaming receiver throughput — adaptive</span><b>1.43 Mbps</b></div>
+  <p class="note">These throughput figures come from saved iperf3 experiments. They are not live measurements of latency, jitter, packet loss, or Internet speed.</p>
+ </div>
+</section>
+
+<section class="tab" id="policy">
+ <div class="panel"><h2>Policy Details</h2><p class="muted">Choose an intent on the Dashboard to preview its bandwidth allocation.</p>
+  <h3 id="policy-name">Video Call priority</h3><div id="policy-allocation"></div>
+  <div class="row"><span>Selected intent</span><b id="policy-intent">video_call</b></div>
+  <div class="row"><span>Policy capacity assumption</span><b>20 Mbps</b></div>
+  <div class="panel" style="margin-top:15px"><h3>Enforcement status</h3><span class="badge">Preview only</span><p class="note">This HTML page does not run sudo or modify tc rules. The existing Python engine and isolated veth-test interface remain separate from this frontend.</p></div>
+ </div>
+</section>
+<section class="tab" id="ml-model">
+  <div class="panel">
+    <h2>🧠 Machine Learning Model</h2>
+    <p class="muted">
+      Traffic prediction using the trained Random Forest classifier.
+    </p>
+
+    <div class="grid" style="margin-top:15px">
+      <div class="metric">
+        <div class="muted">Model Type</div>
+        <div class="value" style="font-size:20px" id="ml-type">Random Forest</div>
+      </div>
+      <div class="metric">
+        <div class="muted">Predicted Traffic</div>
+        <div class="value" style="font-size:20px" id="ml-prediction">—</div>
+      </div>
+      <div class="metric">
+        <div class="muted">Prediction Confidence</div>
+        <div class="value" id="ml-confidence">—</div>
+      </div>
+      <div class="metric">
+        <div class="muted">Input Features</div>
+        <div class="value">4</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="two">
+    <div class="panel">
+      <h2>Class Probabilities</h2>
+      <p class="note">Probability assigned to each possible traffic class.</p>
+      <div id="ml-probabilities">
+        Click the button to run a prediction.
+      </div>
+      <button class="action" id="ml-refresh-btn">Generate & Predict</button>
+      <p class="note" id="ml-status">Prediction not yet requested.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Model Input Metrics</h2>
+      <div id="ml-metrics">
+        <p class="muted">Input metrics will appear here.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Model Information & Limitations</h2>
+    <div class="row"><span>Algorithm</span><b>RandomForestClassifier</b></div>
+    <div class="row"><span>Training dataset</span><b id="ml-training-data">Synthetic</b></div>
+    <div class="row"><span>Traffic classes</span><b>Interactive, Streaming, Bulk</b></div>
+    <div class="row"><span>Real-world validation</span><b>Not yet validated</b></div>
+    <p class="note">
+      Confidence is the model's highest predicted class probability, not its measured real-world accuracy.
+      Input metrics are generated within the training dataset ranges. Predictions are not yet validated on real-world traffic.
+    </p>
+  </div>
+</section>
+<section class="tab" id="about">
+ <div class="panel"><h2>About This Prototype</h2>
+  <p>This project demonstrates user-intent-based bandwidth policy selection using a Linux traffic-control test setup.</p>
+  <h3>Implemented components</h3>
+  <ul><li>User selects Video Call, Gaming, Streaming, or Download.</li><li>Python policy engine adjusts bandwidth allocation based on intent and a heuristic congestion level.</li><li>Linux HTB shaping and a test-port filter operate on the isolated WSL interface.</li><li>Random Forest classifier predicts traffic class using synthetic training data.</li></ul>
+  <h3>Limitations</h3>
+  <ul><li>Experiments use a virtual test network, not a real broadband deployment.</li><li>ML predictions are not validated on real-world traffic.</li><li>Port-based classification is limited.</li><li>Throughput gains do not establish lower latency or jitter.</li><li>Automatic rollback and comprehensive fairness validation remain incomplete.</li></ul>
+ </div>
+</section>
+<footer>User-Intent-Aware Adaptive QoS Engine · Research Prototype</footer>
+</main>
+</div>
+<script>
+const policies = {
+  video_call: {name: "Video Call"},
+  gaming: {name: "Gaming"},
+  streaming: {name: "Streaming"},
+  download: {name: "Download"}
+};
+
+const labels = {
+  interactive: "Interactive (1:10)",
+  streaming: "Streaming (1:20)",
+  bulk: "Bulk (1:30)"
+};
+
+let currentIntent = "video_call";
+
+function showTab(id) {
+  document.querySelectorAll(".tab").forEach(
+    el => el.classList.toggle("active", el.id === id)
+  );
+async function refreshMLModel() {
+  const button = document.getElementById("ml-refresh-btn");
+  const status = document.getElementById("ml-status");
+
+  button.disabled = true;
+  status.textContent = "Generating input metrics and running prediction...";
+
+  try {
+    const response = await fetch("/api/ml-model");
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Prediction failed");
+    }
+
+    document.getElementById("ml-type").textContent = data.model_type;
+    document.getElementById("ml-prediction").textContent =
+      data.predicted_class;
+
+    document.getElementById("ml-confidence").textContent =
+      data.confidence_percent.toFixed(2) + "%";
+
+    document.getElementById("ml-training-data").textContent =
+      data.training_data;
+
+    const probabilityBox = document.getElementById("ml-probabilities");
+    probabilityBox.innerHTML = "";
+
+    for (const [trafficClass, probability] of
+         Object.entries(data.class_probabilities)) {
+      const row = document.createElement("div");
+      row.className = "row";
+
+      const name = document.createElement("span");
+      name.textContent = trafficClass;
+
+      const value = document.createElement("b");
+      value.textContent = probability.toFixed(2) + "%";
+
+      row.append(name, value);
+      probabilityBox.appendChild(row);
+    }
+
+    const metricsBox = document.getElementById("ml-metrics");
+    metricsBox.innerHTML = "";
+
+    const metricLabels = {
+      throughput_mbps: "Virtual-peer throughput",
+      latency_ms: "Average RTT",
+      jitter_ms: "Latency variation",
+      packet_loss_pct: "Packet loss"
+    };
+
+    const units = {
+      throughput_mbps: "Mbps",
+      latency_ms: "ms",
+      jitter_ms: "ms",
+      packet_loss_pct: "%"
+    };
+
+    for (const feature of data.input_features) {
+      const row = document.createElement("div");
+      row.className = "row";
+
+      const name = document.createElement("span");
+      name.textContent = metricLabels[feature] || feature;
+
+      const value = document.createElement("b");
+      value.textContent =
+        Number(data.features[feature]).toFixed(2) +
+        " " + units[feature];
+
+      row.append(name, value);
+      metricsBox.appendChild(row);
+    }
+
+    status.textContent =
+      "Prediction completed. Synthetic-data model; not real-world validated.";
+  } catch (error) {
+    status.textContent = "Could not get prediction: " + error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById("ml-refresh-btn").addEventListener(
+  "click", refreshMLModel
+);
+  document.querySelectorAll("nav button[data-tab]").forEach(
+    el => el.classList.toggle("active", el.dataset.tab === id)
+  );
+}
+
+function renderAllocation(target, allocation) {
+  target.innerHTML = "";
+
+  for (const [key, value] of Object.entries(allocation)) {
+    const row = document.createElement("div");
+    row.className = "row";
+
+    const name = document.createElement("span");
+    name.textContent = labels[key] || key;
+
+    const val = document.createElement("b");
+    val.textContent = value + "%";
+
+    row.append(name, val);
+    target.appendChild(row);
+  }
+}
+
+function displayAllocation(allocation) {
+  renderAllocation(
+    document.getElementById("dashboard-allocation"), allocation
+  );
+  renderAllocation(
+    document.getElementById("policy-allocation"), allocation
+  );
+}
+
+async function requestPolicy(endpoint) {
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      intent: currentIntent,
+      congestion: "moderate"
+    })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Request failed");
+  }
+
+  return data;
+}
+
+async function refreshPolicy() {
+  const status = document.getElementById("apply-status");
+  status.textContent = "Loading policy preview...";
+
+  try {
+    const data = await requestPolicy("/api/policy");
+    displayAllocation(data.allocation);
+    status.textContent =
+      "Preview loaded from backend (Moderate congestion). Not applied yet.";
+  } catch (error) {
+    status.textContent = "Could not load policy: " + error.message;
+  }
+}
+
+function selectIntent(intent) {
+  if (!policies[intent]) return;
+
+  currentIntent = intent;
+
+  document.querySelectorAll(".intent[data-intent]").forEach(
+    el => el.classList.toggle("active", el.dataset.intent === intent)
+  );
+
+  const name = policies[intent].name;
+  document.getElementById("selected-name").textContent = name;
+  document.getElementById("policy-name").textContent = name + " priority";
+  document.getElementById("policy-intent").textContent = intent;
+
+  refreshPolicy();
+}
+
+async function applySelectedPolicy() {
+  const button = document.getElementById("apply-policy-btn");
+  const status = document.getElementById("apply-status");
+
+  button.disabled = true;
+  status.textContent = "Simulating QoS policy; no network settings will change...";
+
+  try {
+    const data = await requestPolicy("/api/apply");
+
+    if (!data.success) {
+      throw new Error(data.error || "Policy application was not confirmed");
+    }
+
+    displayAllocation(data.allocation);
+    status.textContent =
+      "Simulation successful: no network settings were changed. Intent: " + data.intent +
+      " for " + policies[currentIntent].name + ".";
+  } catch (error) {
+    status.textContent =
+      "Apply failed: " + error.message +
+      " Check the Flask terminal for details.";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.querySelectorAll("nav button[data-tab]").forEach(
+  el => el.addEventListener("click", () => showTab(el.dataset.tab))
+);
+
+document.querySelectorAll(".intent[data-intent]").forEach(
+  el => el.addEventListener("click", () => selectIntent(el.dataset.intent))
+);
+
+document.querySelectorAll("[data-goto]").forEach(
+  el => el.addEventListener("click", () => showTab(el.dataset.goto))
+);
+
+document.getElementById("apply-policy-btn").addEventListener(
+  "click", applySelectedPolicy
+);
+
+selectIntent("video_call");
+</script>
+
+<script>
+(async function load51RunResults() {
+ const status = document.getElementById("r51-status");
+ const fields = [
+  ["Interactive throughput", "interactive_mbps", " Mbps"],
+  ["Streaming throughput", "streaming_mbps", " Mbps"],
+  ["Bulk throughput", "bulk_mbps", " Mbps"],
+  ["Average latency", "latency_avg_ms", " ms"],
+  ["Jitter", "jitter_mdev_ms", " ms"],
+  ["Packet loss", "packet_loss_pct", "%"],
+  ["Jain fairness", "jain_fairness", ""]
+ ];
+ let allRows = [];
+ const fmt = (v) => Number.isFinite(Number(v)) ? Number(v).toFixed(3) : "—";
+
+ function render() {
+  const intent = document.getElementById("r51-intent").value;
+  const scenario = document.getElementById("r51-scenario").value;
+  const rows = allRows.filter(r =>
+   (intent === "all" || r.intent === intent) &&
+   (scenario === "all" || r.scenario === scenario)
+  );
+  document.getElementById("r51-metrics").innerHTML = "";
+  document.getElementById("r51-charts").innerHTML = "";
+  document.getElementById("r51-table").innerHTML = "";
+
+  if (!rows.length) {
+   status.textContent = "No runs match these filters.";
+   return;
+  }
+  status.textContent = rows.length + " run(s) shown. Values below are arithmetic means of the filtered rows.";
+  const metrics = fields.map(([label, key, unit]) => {
+   const vals = rows.map(r => Number(r[key])).filter(Number.isFinite);
+   const avg = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : NaN;
+   return {label, key, unit, avg};
+  });
+
+  for (const m of metrics) {
+   const card = document.createElement("div");
+   card.className = "metric";
+   const label = document.createElement("div");
+   label.className = "muted";
+   label.textContent = m.label;
+   const value = document.createElement("div");
+   value.className = "value";
+   value.style.fontSize = "20px";
+   value.textContent = fmt(m.avg) + m.unit;
+   card.append(label, value);
+   document.getElementById("r51-metrics").append(card);
+  }
+
+  for (const key of ["interactive_mbps","streaming_mbps","bulk_mbps","latency_avg_ms","jitter_mdev_ms","packet_loss_pct","jain_fairness"]) {
+   const label = fields.find(f=>f[1]===key)[0];
+   const grouped = {};
+   for (const r of rows) {
+    const group = r.intent === "baseline" ? "Baseline" : r.intent + " / " + r.scenario;
+    (grouped[group] ||= []).push(Number(r[key]));
+   }
+   const panel = document.createElement("div");
+   panel.className = "panel";
+   panel.style.marginBottom = "12px";
+   const heading = document.createElement("h3");
+   heading.textContent = label;
+   panel.append(heading);
+   const values = Object.entries(grouped).map(([name, arr]) => ({
+    name, avg: arr.filter(Number.isFinite).reduce((a,b)=>a+b,0)/arr.filter(Number.isFinite).length
+   })).filter(x=>Number.isFinite(x.avg));
+   const max = Math.max(...values.map(x=>x.avg), 0.0001);
+   for (const item of values) {
+    const row = document.createElement("div");
+    row.style.margin = "8px 0";
+    const caption = document.createElement("div");
+    caption.className = "muted";
+    caption.textContent = item.name + ": " + fmt(item.avg);
+    const bar = document.createElement("div");
+    bar.style.cssText = "height:8px;background:#17324f;border-radius:5px;overflow:hidden";
+    const fill = document.createElement("div");
+    fill.style.cssText = "height:100%;background:#49b5ff;border-radius:5px";
+    fill.style.width = Math.max(0, item.avg/max*100) + "%";
+    bar.append(fill);
+    row.append(caption, bar);
+    panel.append(row);
+   }
+   document.getElementById("r51-charts").append(panel);
+  }
+
+  for (const r of rows) {
+   const tr = document.createElement("tr");
+   const values = [
+    r.intent === "baseline" ? "Baseline" : "Adaptive",
+    r.intent, r.scenario, r.run, r.interactive_mbps, r.streaming_mbps,
+    r.bulk_mbps, r.latency_avg_ms, r.jitter_mdev_ms, r.packet_loss_pct,
+    r.jain_fairness
+   ];
+   for (let i=0;i<values.length;i++) {
+    const td = document.createElement("td");
+    td.style.cssText = "padding:7px;border-bottom:1px solid #26384d;white-space:nowrap";
+    td.textContent = i >= 4 ? fmt(values[i]) : String(values[i] ?? "");
+    tr.append(td);
+   }
+   document.getElementById("r51-table").append(tr);
+  }
+ }
+ try {
+  const response = await fetch("/api/experiment-results");
+  if (!response.ok) throw new Error("API returned " + response.status);
+  const data = await response.json();
+  allRows = Array.isArray(data) ? data : data.rows;
+  if (!Array.isArray(allRows)) throw new Error("Unexpected data format");
+  document.getElementById("r51-total").textContent = allRows.length;
+  document.getElementById("r51-ok").textContent = allRows.filter(r=>r.status==="OK").length;
+  render();
+  document.getElementById("r51-intent").addEventListener("change", render);
+  document.getElementById("r51-scenario").addEventListener("change", render);
+ } catch (e) {
+  status.textContent = "Could not load 51-run data: " + e.message +
+   ". The backend endpoint /api/experiment-results must be enabled.";
+ }
+})();
+
+/* Browser-only simulated graph data. No API calls or network changes. */
+(() => {
+  const specs = [
+    {key:"latency", canvas:"sim-latency-chart", value:"sim-latency-value",
+     label:"Latency", unit:"ms", min:20, max:160, initial:68, step:13},
+    {key:"throughput", canvas:"sim-throughput-chart", value:"sim-throughput-value",
+     label:"Throughput", unit:"Mbps", min:0, max:100, initial:62, step:10},
+    {key:"jitter", canvas:"sim-jitter-chart", value:"sim-jitter-value",
+     label:"Jitter", unit:"ms", min:0, max:40, initial:8, step:5},
+    {key:"loss", canvas:"sim-loss-chart", value:"sim-loss-value",
+     label:"Packet Loss", unit:"%", min:0, max:10, initial:0.5, step:1.5}
+  ];
+
+  const history = {};
+  specs.forEach(s => {
+    history[s.key] = Array.from({length:24}, (_, i) =>
+      Math.max(s.min, Math.min(s.max, s.initial + Math.sin(i/3)*s.step))
+    );
+  });
+
+  function draw(spec) {
+    const canvas = document.getElementById(spec.canvas);
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width) return;
+
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.round(rect.width * ratio);
+    canvas.height = Math.round(210 * ratio);
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+    const w = rect.width, h = 210;
+    const pad = {left:38, right:10, top:12, bottom:27};
+    const cw = w - pad.left - pad.right;
+    const ch = h - pad.top - pad.bottom;
+    const values = history[spec.key];
+    const span = spec.max - spec.min;
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = "11px Segoe UI, Arial";
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#20334b";
+    ctx.fillStyle = "#9ab0cd";
+
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + ch * i / 4;
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(w - pad.right, y);
+      ctx.stroke();
+      const tick = spec.max - span * i / 4;
+      ctx.fillText(tick.toFixed(spec.key === "loss" ? 1 : 0), 2, y + 4);
+    }
+
+    ctx.fillText("Earlier", pad.left, h - 7);
+    ctx.fillText("Now", w - pad.right - 25, h - 7);
+
+    ctx.beginPath();
+    values.forEach((v, i) => {
+      const x = pad.left + (cw * i / (values.length - 1));
+      const y = pad.top + ch * (1 - (v - spec.min) / span);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = "#55baff";
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    const last = values[values.length - 1];
+    const x = w - pad.right;
+    const y = pad.top + ch * (1 - (last - spec.min) / span);
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#10d7a0";
+    ctx.fill();
+  }
+
+  function update() {
+    specs.forEach(s => {
+      const values = history[s.key];
+      const previous = values[values.length - 1];
+      const change = (Math.random() * 2 - 1) * s.step;
+      let next = previous + change;
+
+      // Occasionally simulate a more noticeable network fluctuation.
+      if (Math.random() < 0.08) next += (Math.random() * 2 - 1) * s.step * 1.5;
+      next = Math.max(s.min, Math.min(s.max, next));
+
+      values.push(next);
+      if (values.length > 24) values.shift();
+
+      const valueElement = document.getElementById(s.value);
+      if (valueElement) {
+        const digits = s.key === "loss" ? 2 : 1;
+        valueElement.textContent = next.toFixed(digits) + " " + s.unit;
+      }
+      draw(s);
+    });
+
+    const status = document.getElementById("sim-update-status");
+    if (status) {
+      status.textContent = "Simulation running · updated every 1.5 seconds · latest point = Now";
+    }
+  }
+
+  function start() {
+    update();
+    window.setInterval(update, 1500);
+    window.addEventListener("resize", () => specs.forEach(draw));
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start, {once:true});
+  } else {
+    start();
+  }
+})();
+
+</script>
+
+</body>
+</html>
